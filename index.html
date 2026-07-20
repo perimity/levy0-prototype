@@ -36,6 +36,14 @@
   .auth-error{font-size:12.5px; color:var(--bad); margin-top:10px; display:none;}
   .auth-error.show{display:block;}
   .auth-note{font-size:11.5px; color:var(--slate-light); margin-top:16px; text-align:center;}
+  .auth-divider{display:flex; align-items:center; gap:12px; margin:18px 0 16px; color:var(--slate-light); font-size:12px;}
+  .auth-divider::before, .auth-divider::after{content:''; flex:1; height:1px; background:var(--line);}
+  .auth-google{
+    width:100%; display:flex; align-items:center; justify-content:center; gap:10px;
+    padding:12px; border:1.5px solid var(--line); border-radius:9px; background:var(--white);
+    font-size:14px; font-weight:600; color:var(--navy); transition:background .15s, border-color .15s;
+  }
+  .auth-google:hover{background:var(--pale); border-color:var(--blue-soft);}
   :root{
     --navy:#0A1E3F; --navy-2:#10294F; --white:#FFFFFF; --pale:#EFF3FA;
     --blue:#4E7FDE; --blue-soft:#7FA0E8; --gold:#C7A034; --slate:#51607D; --slate-light:#8B96AC;
@@ -211,6 +219,11 @@
       <button type="submit" class="auth-submit" id="authSubmitBtn">Sign in</button>
       <div class="auth-error" id="authError"></div>
     </form>
+    <div class="auth-divider"><span>or</span></div>
+    <button type="button" class="auth-google" onclick="signInWithGoogle()">
+      <svg width="17" height="17" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.48a5.54 5.54 0 01-2.4 3.63v3h3.88c2.27-2.09 3.56-5.17 3.56-8.82z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.95-2.91l-3.88-3c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.26v3.1A12 12 0 0012 24z"/><path fill="#FBBC05" d="M5.27 14.28A7.2 7.2 0 014.9 12c0-.79.14-1.56.37-2.28v-3.1H1.26A12 12 0 000 12c0 1.94.46 3.77 1.26 5.38l4.01-3.1z"/><path fill="#EA4335" d="M12 4.77c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 001.26 6.62l4.01 3.1C6.22 6.88 8.87 4.77 12 4.77z"/></svg>
+      Continue with Google
+    </button>
     <p class="auth-note" id="authNote">New here? Switch to "Create account" above.</p>
   </div>
 </div>
@@ -450,6 +463,20 @@ function setAuthMode(mode){
     ? 'New here? Switch to "Create account" above.'
     : 'Already have an account? Switch to "Sign in" above.';
   document.getElementById('authError').classList.remove('show');
+}
+
+async function signInWithGoogle(){
+  const errBox = document.getElementById('authError');
+  errBox.classList.remove('show');
+  const { error } = await sbClient.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.href }
+  });
+  if(error){
+    errBox.textContent = error.message;
+    errBox.classList.add('show');
+  }
+  // On success, Google redirects back to this page and onAuthStateChange picks up the session.
 }
 
 async function submitAuth(e){
