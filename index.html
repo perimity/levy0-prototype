@@ -44,6 +44,12 @@
     font-size:14px; font-weight:600; color:var(--navy); transition:background .15s, border-color .15s;
   }
   .auth-google:hover{background:var(--pale); border-color:var(--blue-soft);}
+  .event-row{display:flex; justify-content:space-between; align-items:center; padding:13px 14px; background:var(--pale); border-radius:10px;}
+  .event-desc{font-size:14px; font-weight:600;}
+  .event-meta{font-size:11.5px; color:var(--slate-light); margin-top:2px; text-transform:capitalize;}
+  .event-amt{font-family:var(--mono); font-size:14px; font-weight:600;}
+  .event-del{color:var(--slate-light); font-size:18px; line-height:1; width:22px; height:22px; border-radius:50%; transition:background .15s, color .15s;}
+  .event-del:hover{background:rgba(194,78,78,0.12); color:var(--bad);}
   :root{
     --navy:#0A1E3F; --navy-2:#10294F; --white:#FFFFFF; --pale:#EFF3FA;
     --blue:#4E7FDE; --blue-soft:#7FA0E8; --gold:#C7A034; --slate:#51607D; --slate-light:#8B96AC;
@@ -263,6 +269,9 @@
       <button class="tab-btn" data-tab="projections" onclick="switchTab('projections')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>Projections
       </button>
+      <button class="tab-btn" data-tab="events" onclick="switchTab('events')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>Income Events
+      </button>
       <button class="tab-btn" data-tab="recommend" onclick="switchTab('recommend')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M1 12h4M19 12h4M4.2 19.8L7 17M17 7l2.8-2.8"/></svg>Recommend
       </button>
@@ -387,6 +396,58 @@
     </div>
   </div>
 
+  <!-- ============= INCOME EVENTS ============= -->
+  <div class="panel" id="panel-events">
+    <div class="grid2">
+      <div class="box">
+        <h3>Log an income or deduction event</h3>
+        <div class="sub">Every event you log recalculates your projected tax owed instantly, using real 2025 IRS bracket math.</div>
+        <form id="eventForm" onsubmit="submitEventForm(event)">
+          <div class="field" style="margin-bottom:12px;">
+            <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:5px;">Description</label>
+            <input type="text" id="evtDesc" required placeholder="e.g. Freelance project payment" style="width:100%; padding:11px 13px; border-radius:9px; border:1.5px solid var(--line); font-size:14px; font-family:inherit;">
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+            <div>
+              <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:5px;">Category</label>
+              <select id="evtCategory" class="status-select" style="width:100%;">
+                <option>W-2 income</option><option>1099 / freelance</option><option>Bonus</option>
+                <option>Investment income</option><option>Retirement contribution</option><option>Other</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:5px;">Amount ($)</label>
+              <input type="number" id="evtAmount" required min="1" step="1" placeholder="2000" style="width:100%; padding:11px 13px; border-radius:9px; border:1.5px solid var(--line); font-size:14px; font-family:inherit;">
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+            <div>
+              <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:5px;">Type</label>
+              <select id="evtType" class="status-select" style="width:100%;">
+                <option value="income">Adds to income</option>
+                <option value="deduction">Reduces taxable income</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:5px;">Recurrence</label>
+              <select id="evtRecurrence" class="status-select" style="width:100%;">
+                <option value="one_time">One-time</option>
+                <option value="monthly">Monthly (× 12/yr)</option>
+              </select>
+            </div>
+          </div>
+          <button type="submit" class="file-btn" style="margin-top:0;">Log event &amp; recalculate</button>
+        </form>
+      </div>
+
+      <div class="box">
+        <h3>Logged events</h3>
+        <div class="sub" id="eventsImpact">+$0/yr vs. baseline</div>
+        <div id="eventsList" style="display:flex; flex-direction:column; gap:10px;"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============= RECOMMEND ============= -->
   <div class="panel" id="panel-recommend">
     <div class="box">
@@ -444,6 +505,134 @@
 </div>
 
 <script>
+// ---------------- Real federal tax calculator (TY2025, IRS Rev. Proc. 2024-40 + OBBBA) ----------------
+const STD_DEDUCTION = { single: 15750, mfj: 31500, hoh: 23625 };
+const BRACKETS = {
+  single: [
+    [0, 0.10, 0], [11925, 0.12, 1192.50], [48475, 0.22, 5578.50], [103350, 0.24, 17651.50],
+    [197300, 0.32, 40199.50], [250525, 0.35, 57231.50], [626350, 0.37, 188769.75]
+  ],
+  mfj: [
+    [0, 0.10, 0], [23850, 0.12, 2385], [96950, 0.22, 11157], [206700, 0.24, 35302],
+    [394600, 0.32, 80398], [501050, 0.35, 114462], [751600, 0.37, 202154.50]
+  ],
+  hoh: [
+    [0, 0.10, 0], [17000, 0.12, 1700], [64850, 0.22, 7442], [103350, 0.24, 15912],
+    [197300, 0.32, 38460], [250500, 0.35, 55484], [626350, 0.37, 187031.50]
+  ]
+};
+function computeFederalTax(taxableIncome, filingStatus){
+  const table = BRACKETS[filingStatus] || BRACKETS.single;
+  let bracket = table[0];
+  for(const b of table){ if(taxableIncome >= b[0]) bracket = b; else break; }
+  const [threshold, rate, baseTax] = bracket;
+  return Math.max(0, Math.round(baseTax + (taxableIncome - threshold) * rate));
+}
+
+// ---------------- Income / deduction event ledger ----------------
+let INCOME_EVENTS = [];
+
+async function loadIncomeEvents(userId){
+  const { data, error } = await sbClient
+    .from('income_events')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending:false });
+  INCOME_EVENTS = (!error && data) ? data : [];
+}
+
+async function addIncomeEvent(evt){
+  const { data:{ user } } = await sbClient.auth.getUser();
+  if(!user) return;
+  const row = {
+    user_id: user.id,
+    description: evt.description,
+    category: evt.category,
+    amount: evt.amount,
+    is_deduction: evt.isDeduction,
+    recurrence: evt.recurrence
+  };
+  const { data, error } = await sbClient.from('income_events').insert(row).select().single();
+  if(!error && data){
+    INCOME_EVENTS.unshift(data);
+    recompute();
+    renderTaxUI();
+    renderEventsList();
+    renderRecommendations(TAXDATA);
+  }
+  return error;
+}
+
+async function deleteIncomeEvent(id){
+  await sbClient.from('income_events').delete().eq('id', id);
+  INCOME_EVENTS = INCOME_EVENTS.filter(e=>e.id !== id);
+  recompute();
+  renderTaxUI();
+  renderEventsList();
+  renderRecommendations(TAXDATA);
+}
+
+// Recalculates AGI/taxable income/total tax/effective rate/refund from the
+// baseline return plus every logged event, using real 2025 bracket math.
+function recompute(){
+  if(!TAXDATA) return;
+  const eventsImpact = INCOME_EVENTS.reduce((sum, e)=>{
+    const annualAmount = e.recurrence === 'monthly' ? (+e.amount) * 12 : (+e.amount);
+    return sum + (e.is_deduction ? -annualAmount : annualAmount);
+  }, 0);
+
+  TAXDATA.agi = Math.max(0, Math.round(TAXDATA._baseAgi + eventsImpact));
+  const std = STD_DEDUCTION[TAXDATA.filingStatus] || STD_DEDUCTION.single;
+  TAXDATA.taxableIncome = Math.max(0, TAXDATA.agi - std);
+  TAXDATA.totalTax = computeFederalTax(TAXDATA.taxableIncome, TAXDATA.filingStatus);
+  TAXDATA.effectiveRate = TAXDATA.agi > 0 ? +(TAXDATA.totalTax / TAXDATA.agi * 100).toFixed(1) : 0;
+  // Withholding/estimated payments are assumed to stay at the original pace from the
+  // uploaded return (they don't auto-adjust just because a new income event was logged).
+  TAXDATA.refund = Math.round(TAXDATA._baseWithholding - TAXDATA.totalTax);
+}
+
+function renderEventsList(){
+  const list = document.getElementById('eventsList');
+  if(!list) return;
+  if(!INCOME_EVENTS.length){
+    list.innerHTML = '<p style="font-size:13px; color:var(--slate-light);">No income or deduction events logged yet — the numbers below reflect your baseline return only.</p>';
+  } else {
+    list.innerHTML = INCOME_EVENTS.map(e=>{
+      const annual = e.recurrence==='monthly' ? (+e.amount*12) : +e.amount;
+      const sign = e.is_deduction ? '−' : '+';
+      const color = e.is_deduction ? 'var(--good)' : 'var(--navy)';
+      return `<div class="event-row">
+        <div>
+          <div class="event-desc">${e.description}</div>
+          <div class="event-meta">${e.category} · ${e.recurrence==='monthly' ? money(e.amount)+'/mo' : 'one-time'} · ${e.is_deduction?'deduction':'income'}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div class="event-amt" style="color:${color}">${sign}${money(annual)}<span style="font-weight:400; color:var(--slate-light); font-size:11px;"> /yr</span></div>
+          <button class="event-del" onclick="deleteIncomeEvent('${e.id}')" title="Remove">&times;</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  const impact = INCOME_EVENTS.reduce((sum, e)=>{
+    const annualAmount = e.recurrence === 'monthly' ? (+e.amount) * 12 : (+e.amount);
+    return sum + (e.is_deduction ? -annualAmount : annualAmount);
+  }, 0);
+  const impactEl = document.getElementById('eventsImpact');
+  if(impactEl) impactEl.textContent = (impact>=0?'+':'−') + money(Math.abs(impact)) + '/yr vs. baseline';
+}
+
+async function submitEventForm(e){
+  e.preventDefault();
+  const description = document.getElementById('evtDesc').value.trim();
+  const category = document.getElementById('evtCategory').value;
+  const amount = parseFloat(document.getElementById('evtAmount').value);
+  const isDeduction = document.getElementById('evtType').value === 'deduction';
+  const recurrence = document.getElementById('evtRecurrence').value;
+  if(!description || isNaN(amount) || amount<=0) return;
+  await addIncomeEvent({ description, category, amount, isDeduction, recurrence });
+  document.getElementById('eventForm').reset();
+}
+
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 // ---------------- Supabase ----------------
@@ -470,13 +659,13 @@ async function signInWithGoogle(){
   errBox.classList.remove('show');
   const { error } = await sbClient.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.href }
+    options: { redirectTo: 'https://perimity.github.io/levy0-prototype/' }
   });
   if(error){
     errBox.textContent = error.message;
     errBox.classList.add('show');
   }
-  // On success, Google redirects back to this page and onAuthStateChange picks up the session.
+  // On success, Google redirects back to this exact URL and onAuthStateChange picks up the session.
 }
 
 async function submitAuth(e){
@@ -514,6 +703,7 @@ async function signOut(){
   await sbClient.auth.signOut();
   currentReturnId = null;
   TAXDATA = null;
+  INCOME_EVENTS = [];
   document.getElementById('authGate').classList.remove('hidden');
   document.getElementById('authEmail').value = '';
   document.getElementById('authPassword').value = '';
@@ -529,6 +719,8 @@ async function onAuthed(){
 }
 
 async function loadUserData(userId){
+  await loadIncomeEvents(userId);
+
   const { data: returns } = await sbClient
     .from('tax_returns')
     .select('*')
@@ -584,6 +776,7 @@ function switchTab(tab){
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.id==='panel-'+tab));
   if(tab==='overview') requestAnimationFrame(renderYtdChart);
   if(tab==='projections') requestAnimationFrame(renderProjChart);
+  if(tab==='events') renderEventsList();
 }
 
 function toggleDev(){
@@ -716,11 +909,25 @@ function money(v){ return '$' + Math.round(v).toLocaleString(); }
 // ---------------- Apply data across app ----------------
 function applyData(d, skipSave){
   TAXDATA = d;
-  document.getElementById('syncNote').textContent = `${d.source} · Tax Year ${d.taxYear} · Today is Jul 20, 2026`;
+  TAXDATA._baseAgi = d.agi;
+  TAXDATA._baseWithholding = d.totalTax; // proxy for current withholding/estimated-payment pace
   if(!skipSave) saveTaxReturnToDB(d);
 
+  recompute();
+  renderTaxUI();
+  renderEventsList();
+  renderRecommendations(TAXDATA);
+  if(document.getElementById('panel-overview').classList.contains('active')) renderYtdChart();
+  if(document.getElementById('panel-projections').classList.contains('active')) renderProjChart();
+  computeProjectionNumbers(TAXDATA);
+}
+
+function renderTaxUI(){
+  const d = TAXDATA;
+  document.getElementById('syncNote').textContent = `${d.source} · Tax Year ${d.taxYear} · Today is Jul 20, 2026`;
+
   document.getElementById('ov-agi').textContent = money(d.agi);
-  document.getElementById('ov-agi-note').textContent = d.fields.agi==='extracted' ? 'Detected from your return' : 'Sample figure';
+  document.getElementById('ov-agi-note').textContent = INCOME_EVENTS.length ? 'Live — includes logged events' : (d.fields.agi==='extracted' ? 'Detected from your return' : 'Sample figure');
   document.getElementById('ov-rate').textContent = d.effectiveRate + '%';
   document.getElementById('ov-rate-note').textContent = 'Total tax ÷ AGI';
   document.getElementById('ov-refund').textContent = (d.refund>=0?'+':'-') + money(Math.abs(d.refund));
@@ -739,17 +946,16 @@ function applyData(d, skipSave){
   document.getElementById('f-ti').textContent = money(d.taxableIncome);
   document.getElementById('f-tt').textContent = money(d.totalTax);
   document.getElementById('f-refund').textContent = (d.refund>=0?'+':'-') + money(Math.abs(d.refund)) + (d.refund>=0?' refund':' due');
-
-  renderRecommendations(d);
-  if(document.getElementById('panel-overview').classList.contains('active')) renderYtdChart();
-  if(document.getElementById('panel-projections').classList.contains('active')) renderProjChart();
-  computeProjectionNumbers(d);
 }
 
 function onStatusChange(){
   if(!TAXDATA) return;
   TAXDATA.filingStatus = document.getElementById('filingStatusSelect').value;
-  applyData(TAXDATA, true); // display-only change; not re-saved as a new return
+  recompute();
+  renderTaxUI();
+  renderRecommendations(TAXDATA);
+  if(document.getElementById('panel-projections').classList.contains('active')) renderProjChart();
+  computeProjectionNumbers(TAXDATA);
 }
 
 // ---------------- Recommendations ----------------
@@ -900,6 +1106,17 @@ function startFiling(){
 function setFp(id, cls){ document.getElementById(id).className = 'fp-step ' + cls; }
 
 // ---------------- Init ----------------
+(function showUrlAuthError(){
+  const raw = window.location.hash ? window.location.hash.slice(1) : window.location.search.slice(1);
+  const params = new URLSearchParams(raw);
+  const desc = params.get('error_description') || params.get('error');
+  if(desc){
+    const box = document.getElementById('authError');
+    box.textContent = 'Google sign-in failed: ' + decodeURIComponent(desc.replace(/\+/g,' '));
+    box.classList.add('show');
+  }
+})();
+
 sbClient.auth.getSession().then(({ data:{ session } })=>{
   if(session) onAuthed();
 });
