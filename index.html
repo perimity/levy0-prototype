@@ -406,10 +406,15 @@
       <div>
         <h3 style="margin-bottom:4px;">Connect your bank automatically</h3>
         <div class="sub" style="margin-bottom:0;" id="plaidStatus">Not connected — reading paychecks below requires manual entry until you connect an account.</div>
+        <div class="sub" style="margin-bottom:0; margin-top:6px; font-size:11.5px;">Note: bank data only shows net deposits, not gross pay — synced figures estimate gross/withholding using an assumed 22% rate. Manual entry above stays exact if you know your real numbers.</div>
       </div>
       <button class="file-btn" style="width:auto; margin-top:0; padding:12px 20px; white-space:nowrap;" id="plaidConnectBtn" onclick="startPlaidLink()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
         Connect a bank account
+      </button>
+      <button class="btn-secondary" style="display:none; white-space:nowrap;" id="plaidSyncBtn" onclick="syncPlaidIncome()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        Sync income from bank
       </button>
     </div>
     <div class="grid2">
@@ -585,12 +590,51 @@ async function checkPlaidStatus(userId){
     .limit(1);
   const statusEl = document.getElementById('plaidStatus');
   const btnEl = document.getElementById('plaidConnectBtn');
+  const syncBtn = document.getElementById('plaidSyncBtn');
   if(!error && data && data.length){
     statusEl.textContent = `Connected — ${data[0].institution_name || 'bank account'} linked via Plaid`;
     btnEl.textContent = 'Reconnect / add another account';
+    syncBtn.style.display = 'inline-flex';
   } else {
     statusEl.textContent = 'Not connected — reading paychecks below requires manual entry until you connect an account.';
+    syncBtn.style.display = 'none';
   }
+}
+
+async function syncPlaidIncome(){
+  const syncBtn = document.getElementById('plaidSyncBtn');
+  const statusEl = document.getElementById('plaidStatus');
+  syncBtn.disabled = true;
+  const prevText = statusEl.textContent;
+  statusEl.textContent = 'Reading transactions and detecting paycheck deposits…';
+
+  try{
+    const { data:{ session } } = await sbClient.auth.getSession();
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/plaid-sync-income`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${session.access_token}` }
+    });
+    const result = await res.json();
+    if(!res.ok || result.error){
+      statusEl.textContent = typeof result.error === 'string' ? result.error : 'Could not sync income — check function logs.';
+      syncBtn.disabled = false;
+      return;
+    }
+    statusEl.textContent = `Synced ${result.depositCount} deposits · est. ${money(result.estimatedGrossPerPeriod)}/${result.frequency==='monthly'?'mo':'paycheck'} gross (estimated — see note below)`;
+    const { data:{ user } } = await sbClient.auth.getUser();
+    await loadPaycheckProfile(user.id);
+    renderPaycheckUI();
+    recompute();
+    renderTaxUI();
+    renderRecommendations(TAXDATA);
+    if(document.getElementById('panel-overview').classList.contains('active')) renderYtdChart();
+    if(document.getElementById('panel-projections').classList.contains('active')) renderProjChart();
+    computeProjectionNumbers(TAXDATA);
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = 'Something went wrong syncing income.';
+  }
+  syncBtn.disabled = false;
 }
 
 async function startPlaidLink(){
