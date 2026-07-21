@@ -574,10 +574,6 @@
 
 <script>
 // ---------------- Plaid (bank account connection) ----------------
-// Edge Function URLs — replace YOUR_PROJECT with your actual Supabase project ref
-// once functions are deployed (Supabase Dashboard shows this after `supabase functions deploy`).
-const FN_CREATE_LINK_TOKEN = `${SUPABASE_URL}/functions/v1/plaid-create-link-token`;
-const FN_EXCHANGE_TOKEN = `${SUPABASE_URL}/functions/v1/plaid-exchange-token`;
 
 async function checkPlaidStatus(userId){
   const { data, error } = await sbClient
@@ -605,7 +601,7 @@ async function startPlaidLink(){
 
   try{
     const { data:{ session } } = await sbClient.auth.getSession();
-    const tokenRes = await fetch(FN_CREATE_LINK_TOKEN, {
+    const tokenRes = await fetch(`${SUPABASE_URL}/functions/v1/plaid-create-link-token`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${session.access_token}` }
     });
@@ -620,7 +616,7 @@ async function startPlaidLink(){
       token: tokenData.link_token,
       onSuccess: async (public_token, metadata) => {
         statusEl.textContent = 'Connected — saving securely…';
-        const exchangeRes = await fetch(FN_EXCHANGE_TOKEN, {
+        const exchangeRes = await fetch(`${SUPABASE_URL}/functions/v1/plaid-exchange-token`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ public_token, institution_name: metadata?.institution?.name })
