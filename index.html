@@ -269,6 +269,9 @@
       <button class="tab-btn" data-tab="projections" onclick="switchTab('projections')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>Projections
       </button>
+      <button class="tab-btn" data-tab="paycheck" onclick="switchTab('paycheck')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/></svg>Paycheck
+      </button>
       <button class="tab-btn" data-tab="events" onclick="switchTab('events')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>Income Events
       </button>
@@ -396,6 +399,60 @@
     </div>
   </div>
 
+  <!-- ============= PAYCHECK ============= -->
+  <div class="panel" id="panel-paycheck">
+    <div class="grid2">
+      <div class="box">
+        <h3>Direct deposit — paycheck details</h3>
+        <div class="sub">This becomes your income baseline for continuous tracking, replacing the flat estimate from your uploaded return. Bank account/routing for refund deposit is coming in a later update — not collected here yet.</div>
+        <form id="paycheckForm" onsubmit="submitPaycheckForm(event)">
+          <div class="field" style="margin-bottom:12px;">
+            <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:5px;">Employer name</label>
+            <input type="text" id="pcEmployer" placeholder="e.g. Acme Corp" style="width:100%; padding:11px 13px; border-radius:9px; border:1.5px solid var(--line); font-size:14px; font-family:inherit;">
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+            <div>
+              <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:5px;">Gross pay / paycheck ($)</label>
+              <input type="number" id="pcGross" required min="1" step="1" placeholder="3200" style="width:100%; padding:11px 13px; border-radius:9px; border:1.5px solid var(--line); font-size:14px; font-family:inherit;">
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:5px;">Federal tax withheld / paycheck ($)</label>
+              <input type="number" id="pcWithholding" required min="0" step="1" placeholder="620" style="width:100%; padding:11px 13px; border-radius:9px; border:1.5px solid var(--line); font-size:14px; font-family:inherit;">
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+            <div>
+              <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:5px;">Pay frequency</label>
+              <select id="pcFrequency" class="status-select" style="width:100%;">
+                <option value="weekly">Weekly (52/yr)</option>
+                <option value="biweekly" selected>Biweekly (26/yr)</option>
+                <option value="semimonthly">Semimonthly (24/yr)</option>
+                <option value="monthly">Monthly (12/yr)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:600; color:var(--slate); display:block; margin-bottom:5px;">First paycheck of 2026</label>
+              <input type="date" id="pcFirstDate" required value="2026-01-09" style="width:100%; padding:10px 13px; border-radius:9px; border:1.5px solid var(--line); font-size:14px; font-family:inherit;">
+            </div>
+          </div>
+          <button type="submit" class="file-btn" style="margin-top:0;">Save &amp; start continuous tracking</button>
+        </form>
+        <p style="font-size:11.5px; color:var(--slate-light); margin-top:12px;">Saving this replaces your income baseline — logged Income Events still layer on top of it.</p>
+      </div>
+
+      <div class="box">
+        <h3>Year-to-date, from paycheck data</h3>
+        <div class="sub" id="pcStatus">No paycheck profile saved yet — using your uploaded return as the baseline instead.</div>
+        <div class="profile-row"><div class="k">Pay periods elapsed</div><div class="v" id="pc-periods">—</div></div>
+        <div class="profile-row"><div class="k">YTD gross pay</div><div class="v" id="pc-ytd-gross">—</div></div>
+        <div class="profile-row"><div class="k">YTD federal withholding</div><div class="v" id="pc-ytd-wh">—</div></div>
+        <div class="profile-row"><div class="k">Projected annual gross</div><div class="v" id="pc-annual-gross">—</div></div>
+        <div class="profile-row"><div class="k">Projected annual withholding</div><div class="v" id="pc-annual-wh">—</div></div>
+        <div class="profile-row"><div class="k">Next paycheck (est.)</div><div class="v" id="pc-next">—</div></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============= INCOME EVENTS ============= -->
   <div class="panel" id="panel-events">
     <div class="grid2">
@@ -505,6 +562,82 @@
 </div>
 
 <script>
+// ---------------- Paycheck / direct deposit continuous tracking ----------------
+let PAYCHECK = null;
+const PERIODS_PER_YEAR = { weekly:52, biweekly:26, semimonthly:24, monthly:12 };
+const TODAY = new Date('2026-07-20');
+
+async function loadPaycheckProfile(userId){
+  const { data, error } = await sbClient
+    .from('paycheck_profiles')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+  PAYCHECK = (!error && data) ? data : null;
+}
+
+function paycheckMath(p){
+  const periodsPerYear = PERIODS_PER_YEAR[p.frequency] || 26;
+  const periodDays = 365 / periodsPerYear;
+  const firstPay = new Date(p.first_pay_date);
+  const elapsedDays = Math.max(0, (TODAY - firstPay) / 86400000);
+  const periodsElapsed = Math.min(periodsPerYear, Math.max(0, Math.floor(elapsedDays / periodDays) + 1));
+  const ytdGross = Math.round(p.gross_per_period * periodsElapsed);
+  const ytdWithholding = Math.round(p.federal_withholding_per_period * periodsElapsed);
+  const annualGross = Math.round(p.gross_per_period * periodsPerYear);
+  const annualWithholding = Math.round(p.federal_withholding_per_period * periodsPerYear);
+  const nextPayDate = new Date(firstPay.getTime() + periodsElapsed * periodDays * 86400000);
+  return { periodsPerYear, periodsElapsed, ytdGross, ytdWithholding, annualGross, annualWithholding, nextPayDate };
+}
+
+function renderPaycheckUI(){
+  if(!PAYCHECK){
+    document.getElementById('pcStatus').textContent = 'No paycheck profile saved yet — using your uploaded return as the baseline instead.';
+    ['pc-periods','pc-ytd-gross','pc-ytd-wh','pc-annual-gross','pc-annual-wh','pc-next'].forEach(id=>document.getElementById(id).textContent='—');
+    return;
+  }
+  const m = paycheckMath(PAYCHECK);
+  document.getElementById('pcStatus').textContent = `Tracking ${PAYCHECK.employer_name || 'this employer'} · ${PAYCHECK.frequency} paychecks · driving your live projections`;
+  document.getElementById('pc-periods').textContent = `${m.periodsElapsed} of ${m.periodsPerYear}`;
+  document.getElementById('pc-ytd-gross').textContent = money(m.ytdGross);
+  document.getElementById('pc-ytd-wh').textContent = money(m.ytdWithholding);
+  document.getElementById('pc-annual-gross').textContent = money(m.annualGross);
+  document.getElementById('pc-annual-wh').textContent = money(m.annualWithholding);
+  document.getElementById('pc-next').textContent = m.nextPayDate.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+
+  document.getElementById('pcEmployer').value = PAYCHECK.employer_name || '';
+  document.getElementById('pcGross').value = PAYCHECK.gross_per_period;
+  document.getElementById('pcWithholding').value = PAYCHECK.federal_withholding_per_period;
+  document.getElementById('pcFrequency').value = PAYCHECK.frequency;
+  document.getElementById('pcFirstDate').value = PAYCHECK.first_pay_date;
+}
+
+async function submitPaycheckForm(e){
+  e.preventDefault();
+  const { data:{ user } } = await sbClient.auth.getUser();
+  if(!user) return;
+  const row = {
+    user_id: user.id,
+    employer_name: document.getElementById('pcEmployer').value.trim(),
+    gross_per_period: parseFloat(document.getElementById('pcGross').value),
+    federal_withholding_per_period: parseFloat(document.getElementById('pcWithholding').value),
+    frequency: document.getElementById('pcFrequency').value,
+    first_pay_date: document.getElementById('pcFirstDate').value,
+    updated_at: new Date().toISOString()
+  };
+  const { data, error } = await sbClient.from('paycheck_profiles').upsert(row).select().single();
+  if(!error){
+    PAYCHECK = data;
+    renderPaycheckUI();
+    recompute();
+    renderTaxUI();
+    renderRecommendations(TAXDATA);
+    if(document.getElementById('panel-overview').classList.contains('active')) renderYtdChart();
+    if(document.getElementById('panel-projections').classList.contains('active')) renderProjChart();
+    computeProjectionNumbers(TAXDATA);
+  }
+}
+
 // ---------------- Real federal tax calculator (TY2025, IRS Rev. Proc. 2024-40 + OBBBA) ----------------
 const STD_DEDUCTION = { single: 15750, mfj: 31500, hoh: 23625 };
 const BRACKETS = {
@@ -576,19 +709,25 @@ async function deleteIncomeEvent(id){
 // baseline return plus every logged event, using real 2025 bracket math.
 function recompute(){
   if(!TAXDATA) return;
+  let baseAgi = TAXDATA._baseAgi;
+  let baseWithholding = TAXDATA._baseWithholding;
+  if(PAYCHECK){
+    const m = paycheckMath(PAYCHECK);
+    baseAgi = m.annualGross;
+    baseWithholding = m.annualWithholding;
+  }
+
   const eventsImpact = INCOME_EVENTS.reduce((sum, e)=>{
     const annualAmount = e.recurrence === 'monthly' ? (+e.amount) * 12 : (+e.amount);
     return sum + (e.is_deduction ? -annualAmount : annualAmount);
   }, 0);
 
-  TAXDATA.agi = Math.max(0, Math.round(TAXDATA._baseAgi + eventsImpact));
+  TAXDATA.agi = Math.max(0, Math.round(baseAgi + eventsImpact));
   const std = STD_DEDUCTION[TAXDATA.filingStatus] || STD_DEDUCTION.single;
   TAXDATA.taxableIncome = Math.max(0, TAXDATA.agi - std);
   TAXDATA.totalTax = computeFederalTax(TAXDATA.taxableIncome, TAXDATA.filingStatus);
   TAXDATA.effectiveRate = TAXDATA.agi > 0 ? +(TAXDATA.totalTax / TAXDATA.agi * 100).toFixed(1) : 0;
-  // Withholding/estimated payments are assumed to stay at the original pace from the
-  // uploaded return (they don't auto-adjust just because a new income event was logged).
-  TAXDATA.refund = Math.round(TAXDATA._baseWithholding - TAXDATA.totalTax);
+  TAXDATA.refund = Math.round(baseWithholding - TAXDATA.totalTax);
 }
 
 function renderEventsList(){
@@ -704,6 +843,7 @@ async function signOut(){
   currentReturnId = null;
   TAXDATA = null;
   INCOME_EVENTS = [];
+  PAYCHECK = null;
   document.getElementById('authGate').classList.remove('hidden');
   document.getElementById('authEmail').value = '';
   document.getElementById('authPassword').value = '';
@@ -720,6 +860,8 @@ async function onAuthed(){
 
 async function loadUserData(userId){
   await loadIncomeEvents(userId);
+  await loadPaycheckProfile(userId);
+  renderPaycheckUI();
 
   const { data: returns } = await sbClient
     .from('tax_returns')
@@ -777,6 +919,7 @@ function switchTab(tab){
   if(tab==='overview') requestAnimationFrame(renderYtdChart);
   if(tab==='projections') requestAnimationFrame(renderProjChart);
   if(tab==='events') renderEventsList();
+  if(tab==='paycheck') renderPaycheckUI();
 }
 
 function toggleDev(){
@@ -927,7 +1070,7 @@ function renderTaxUI(){
   document.getElementById('syncNote').textContent = `${d.source} · Tax Year ${d.taxYear} · Today is Jul 20, 2026`;
 
   document.getElementById('ov-agi').textContent = money(d.agi);
-  document.getElementById('ov-agi-note').textContent = INCOME_EVENTS.length ? 'Live — includes logged events' : (d.fields.agi==='extracted' ? 'Detected from your return' : 'Sample figure');
+  document.getElementById('ov-agi-note').textContent = PAYCHECK ? 'Live — from paycheck tracking' : (INCOME_EVENTS.length ? 'Live — includes logged events' : (d.fields.agi==='extracted' ? 'Detected from your return' : 'Sample figure'));
   document.getElementById('ov-rate').textContent = d.effectiveRate + '%';
   document.getElementById('ov-rate-note').textContent = 'Total tax ÷ AGI';
   document.getElementById('ov-refund').textContent = (d.refund>=0?'+':'-') + money(Math.abs(d.refund));
